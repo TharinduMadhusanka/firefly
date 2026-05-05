@@ -16,7 +16,7 @@ This project simulates that process in 3D, running entirely in the browser. Adju
 
 ## Live Demo
 
-👉 **[firefly.yourdomain.com](https://firefly.yourdomain.com)**
+👉 **[firefly-sync.vercel.app](https://firefly-sync.vercel.app)**
 
 ---
 
