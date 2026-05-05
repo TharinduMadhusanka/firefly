@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Firefly Synchronization</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #030a06;
+      --panel-bg:  rgba(4, 14, 8, 0.82);
+      --border:    rgba(120, 220, 100, 0.12);
+      --accent:    #7dff6b;
+      --accent2:   #b8ff9f;
+      --dim:       rgba(180, 255, 150, 0.38);
+      --text:      #d4f5c8;
+      --muted:     rgba(180, 220, 160, 0.5);
+      --glow:      0 0 24px rgba(100, 255, 80, 0.18);
+      --ff:        'Cormorant Garamond', Georgia, serif;
+      --mono:      'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--ff);
+      overflow: hidden;
+    }
+
+    /* ── Canvas ── */
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+    #canvas-container canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* ── Vignette overlay ── */
+    #canvas-container::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(2,8,4,0.72) 100%);
+      pointer-events: none;
+    }
+
+    /* ── Header ── */
+    header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 28px 36px 0;
+      pointer-events: none;
+    }
+
+    .title-block h1 {
+      font-size: clamp(1.6rem, 3vw, 2.6rem);
+      font-weight: 300;
+      font-style: italic;
+      letter-spacing: 0.02em;
+      line-height: 1.1;
+      color: var(--accent2);
+      text-shadow: 0 0 40px rgba(100,255,80,0.3);
+    }
+    .title-block p {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 5px;
+    }
+
+    /* ── Status badge ── */
+    .status-row {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      pointer-events: none;
+    }
+    .stat {
+      text-align: right;
+    }
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 0.58rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .stat-value {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 400;
+      color: var(--accent);
+      text-shadow: var(--glow);
+    }
+
+    /* ── Order parameter arc ── */
+    #sync-arc-wrap {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+    }
+    #sync-arc-wrap svg {
+      width: 90px; height: 54px;
+      overflow: visible;
+    }
+    #arc-bg { stroke: rgba(120,220,100,0.1); }
+    #arc-fill { stroke: var(--accent); transition: stroke-dasharray 0.15s; filter: drop-shadow(0 0 6px rgba(100,255,80,0.6)); }
+    .arc-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    #r-value {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      color: var(--accent2);
+      text-shadow: var(--glow);
+      margin-top: -2px;
+    }
+
+    /* ── Control Panel ── */
+    #panel {
+      position: fixed;
+      right: 0;
+      top: 0; bottom: 0;
+      width: 280px;
+      z-index: 10;
+      background: var(--panel-bg);
+      border-left: 1px solid var(--border);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      display: flex;
+      flex-direction: column;
+      padding: 100px 24px 28px;
+      gap: 0;
+      overflow-y: auto;
+      transition: transform 0.4s cubic-bezier(.16,1,.3,1);
+    }
+
+    #panel.hidden { transform: translateX(100%); }
+
+    .panel-section {
+      margin-bottom: 28px;
+    }
+    .panel-section-title {
+      font-family: var(--mono);
+      font-size: 0.58rem;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .control-row {
+      margin-bottom: 18px;
+    }
+    .control-row label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 7px;
+    }
+    .control-name {
+      font-size: 0.92rem;
+      font-style: italic;
+      color: var(--text);
+    }
+    .control-val {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 2px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px rgba(100,255,80,0.6);
+      cursor: pointer;
+      transition: box-shadow 0.2s;
+    }
+    input[type=range]:hover::-webkit-slider-thumb {
+      box-shadow: 0 0 18px rgba(100,255,80,0.9);
+    }
+
+    .btn-row { display: flex; gap: 10px; margin-top: 4px; }
+    .btn {
+      flex: 1;
+      padding: 9px 0;
+      border: 1px solid var(--border);
+      background: rgba(100,255,80,0.06);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: rgba(100,255,80,0.14);
+      border-color: var(--accent);
+      color: var(--accent2);
+      box-shadow: var(--glow);
+    }
+    .btn.active {
+      background: rgba(100,255,80,0.18);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ── Chart ── */
+    #r-chart {
+      width: 100%;
+      height: 70px;
+      margin-top: 4px;
+    }
+
+    /* ── Toggle panel btn ── */
+    #toggle-panel {
+      position: fixed;
+      right: 290px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 11;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-right: none;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 12px 6px;
+      cursor: pointer;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      letter-spacing: 0.1em;
+      transition: all 0.3s;
+      backdrop-filter: blur(10px);
+    }
+    #toggle-panel:hover { color: var(--accent); }
+
+    /* ── Bottom bar ── */
+    #bottom-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 280px;
+      z-index: 10;
+      padding: 14px 36px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+    .bottom-stat {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+    .bottom-stat span { color: var(--accent); }
+
+    /* ── Connection dot ── */
+    .dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #666;
+      margin-right: 6px;
+      vertical-align: middle;
+      transition: background 0.4s;
+    }
+    .dot.connected { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .dot.error { background: #ff5555; }
+
+    /* ── Fade-in ── */
+    @keyframes fadeIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform: none; } }
+    header, #sync-arc-wrap, #panel, #bottom-bar {
+      animation: fadeIn 0.8s ease both;
+    }
+  </style>
+</head>
+<body>
+
+<!-- 3D Canvas -->
+<div id="canvas-container"></div>
+
+<!-- Header -->
+<header>
+  <div class="title-block">
+    <h1>Firefly<br>Synchronization</h1>
+    <p>Kuramoto Model · 3D Simulation</p>
+  </div>
+  <div class="status-row">
+    <div class="stat">
+      <div class="stat-label">Fireflies</div>
+      <div class="stat-value" id="stat-n">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Time</div>
+      <div class="stat-value" id="stat-t">0.0s</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Status</div>
+      <div class="stat-value" style="font-size:0.75rem; display:flex; align-items:center;">
+        <span class="dot" id="conn-dot"></span>
+        <span id="conn-label">connecting</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Center sync arc -->
+<div id="sync-arc-wrap">
+  <svg viewBox="0 0 90 54">
+    <path id="arc-bg" d="M 5 50 A 40 40 0 0 1 85 50" fill="none" stroke-width="3" />
+    <path id="arc-fill" d="M 5 50 A 40 40 0 0 1 85 50" fill="none" stroke-width="3" stroke-linecap="round" />
+  </svg>
+  <div id="r-value">0.00</div>
+  <div class="arc-label">Sync Order r</div>
+</div>
+
+<!-- Side panel -->
+<button id="toggle-panel">CONTROLS</button>
+
+<div id="panel">
+  <div class="panel-section">
+    <div class="panel-section-title">Kuramoto Parameters</div>
+
+    <div class="control-row">
+      <label>
+        <span class="control-name">Coupling strength K</span>
+        <span class="control-val" id="lbl-K">1.5</span>
+      </label>
+      <input type="range" id="sl-K" min="0" max="5" step="0.05" value="1.5">
+    </div>
+
+    <div class="control-row">
+      <label>
+        <span class="control-name">Neighbor radius</span>
+        <span class="control-val" id="lbl-radius">0.35</span>
+      </label>
+      <input type="range" id="sl-radius" min="0.05" max="1.0" step="0.01" value="0.35">
+    </div>
+
+    <div class="control-row">
+      <label>
+        <span class="control-name">Frequency spread σ</span>
+        <span class="control-val" id="lbl-freq">0.30</span>
+      </label>
+      <input type="range" id="sl-freq" min="0.01" max="1.5" step="0.01" value="0.30">
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-section-title">Simulation</div>
+
+    <div class="control-row">
+      <label>
+        <span class="control-name">Firefly count</span>
+        <span class="control-val" id="lbl-n">200</span>
+      </label>
+      <input type="range" id="sl-n" min="20" max="500" step="10" value="200">
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" id="btn-pause">Pause</button>
+      <button class="btn" id="btn-reset">Reset</button>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-section-title">Camera</div>
+    <div class="btn-row">
+      <button class="btn" id="btn-rotate">Auto-rotate</button>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-section-title">Order Parameter r(t)</div>
+    <canvas id="r-chart"></canvas>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-section-title">Legend</div>
+    <p style="font-size:0.82rem; color:var(--muted); line-height:1.7; font-style:italic;">
+      r → 0: chaos<br>
+      r → 1: perfect sync<br>
+      <br>
+      K controls how strongly fireflies pull each other into phase. Increase K to force synchrony.
+      Widen σ to add chaos.
+    </p>
+  </div>
+</div>
+
+<!-- Bottom bar -->
+<div id="bottom-bar">
+  <div class="bottom-stat">fps <span id="stat-fps">—</span></div>
+  <div class="bottom-stat">drag to orbit · scroll to zoom</div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
